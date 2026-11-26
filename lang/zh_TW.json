@@ -1,0 +1,10 @@
+{
+    "Unauthorized": "尚未授權，請先登入。",
+    "Payment Required": "此操作需要付款。",
+    "Forbidden": "您沒有權限執行此操作。",
+    "Page Expired": "頁面已過期，請重新載入後再試。",
+    "Not Found": "找不到您要查看的頁面。",
+    "Too Many Requests": "操作次數過多，請稍後再試。",
+    "Server Error": "伺服器發生錯誤，請稍後再試。",
+    "Service Unavailable": "服務暫時無法使用，請稍後再試。"
+}
