@@ -3,30 +3,67 @@
 namespace App\Http\Controllers;
 
 use App\Exports\EmployeesExport;
+use App\Exports\EmployeeTemplateExport;
 use App\Models\Employee;
 use Illuminate\Http\Request;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use Maatwebsite\Excel\Facades\Excel;
 use PhpOffice\PhpWord\PhpWord;
-use PhpOffice\PhpWord\SimpleType\Jc;
-use PhpOffice\PhpWord\SimpleType\TblWidth;
 use PhpOffice\PhpWord\Settings as PhpWordSettings;
+use PhpOffice\PhpWord\SimpleType\TblWidth;
 
 class EmployeeController extends Controller
 {
-    public function index()
+    private function employeeQuery(string $search, string $department)
     {
+        $query = Employee::query();
+
+        if ($search !== '') {
+            $query->where(function ($query) use ($search) {
+                $query->where('name', 'like', "%{$search}%")
+                    ->orWhere('employee_number', 'like', "%{$search}%");
+            });
+        }
+        if ($department !== '') {
+            $query->where('department', $department);
+        }
+
+        return $query->orderBy('id');
+    }
+
+    public function index(Request $request)
+    {
+        $search = trim((string) $request->query('search'));
+        $department = trim((string) $request->query('department'));
+        $query = $this->employeeQuery($search, $department);
+
         return view('employees.index', [
-            'employees' => Employee::orderBy('id')->get(),
+            'employees' => $query->paginate(20)->withQueryString(),
+            'departments' => Employee::query()
+                ->whereNotNull('department')
+                ->where('department', '!=', '')
+                ->distinct()
+                ->orderBy('department')
+                ->pluck('department'),
+            'search' => $search,
+            'department' => $department,
+            'filteredCount' => $this->employeeQuery($search, $department)->count(),
+            'totalCount' => Employee::query()->count(),
         ]);
+    }
+
+    public function downloadTemplate()
+    {
+        return Excel::download(new EmployeeTemplateExport, 'employee-import-template.xlsx');
     }
 
     public function import(Request $request)
     {
         $file = $request->file('file');
-        if ($file instanceof \Illuminate\Http\UploadedFile && !$file->isValid()) {
+        if ($file instanceof UploadedFile && ! $file->isValid()) {
             $errorCode = $file->getError();
             Log::warning('Employee Excel upload failed.', ['php_upload_error' => $errorCode]);
 
@@ -78,6 +115,7 @@ class EmployeeController extends Controller
             $extraValues = array_slice($row, 7);
             if (array_filter($extraValues, fn ($v) => $v !== null && trim((string) $v) !== '') !== []) {
                 $errors[] = "第 {$excelRow} 列：七個指定欄位以外仍有資料，請移除多餘欄位內容。";
+
                 continue;
             }
 
@@ -113,7 +151,7 @@ class EmployeeController extends Controller
             }
 
             if ($rowErrors) {
-                $errors[] = "第 {$excelRow} 列：" . implode('；', $rowErrors);
+                $errors[] = "第 {$excelRow} 列：".implode('；', $rowErrors);
             } else {
                 $valid[] = $data;
             }
@@ -129,7 +167,7 @@ class EmployeeController extends Controller
             }
         });
 
-        return back()->with('status', '匯入完成，共成功匯入 ' . count($valid) . ' 筆資料。');
+        return back()->with('status', '匯入完成，共成功匯入 '.count($valid).' 筆資料。');
     }
 
     private function uploadErrorMessage(int $errorCode): string
@@ -163,17 +201,32 @@ class EmployeeController extends Controller
                 return $date->format('Y-m-d');
             }
         }
+
         return $text;
     }
 
     public function exportExcel()
     {
-        return Excel::download(new EmployeesExport, 'human-employees.xlsx');
+        $search = trim((string) request()->query('search'));
+        $department = trim((string) request()->query('department'));
+        $count = $this->employeeQuery($search, $department)->count();
+        if ($count === 0) {
+            return back()->withErrors(['export' => '目前沒有符合匯出條件的資料，未產生空白匯出檔案。']);
+        }
+
+        return Excel::download(new EmployeesExport($search, $department), 'human-employees.xlsx');
     }
 
     public function exportWord()
     {
-        $phpWord = new PhpWord();
+        $search = trim((string) request()->query('search'));
+        $department = trim((string) request()->query('department'));
+        $employees = $this->employeeQuery($search, $department)->get();
+        if ($employees->isEmpty()) {
+            return back()->withErrors(['export' => '目前沒有符合匯出條件的資料，未產生空白匯出檔案。']);
+        }
+
+        $phpWord = new PhpWord;
         $phpWord->setDefaultFontName('Microsoft JhengHei');
         $section = $phpWord->addSection();
         $section->addText('人員資料', ['bold' => true, 'size' => 16]);
@@ -183,7 +236,7 @@ class EmployeeController extends Controller
         foreach ($headers as $header) {
             $table->addCell(1500)->addText($header, ['bold' => true]);
         }
-        foreach (Employee::orderBy('id')->get() as $employee) {
+        foreach ($employees as $employee) {
             $table->addRow();
             foreach ([
                 $employee->employee_number, $employee->name, $employee->department,
@@ -195,10 +248,10 @@ class EmployeeController extends Controller
 
         $filename = 'human-employees.docx';
         $tempDirectory = ini_get('upload_tmp_dir');
-        if (!is_string($tempDirectory) || $tempDirectory === '' || !is_dir($tempDirectory) || !is_writable($tempDirectory)) {
+        if (! is_string($tempDirectory) || $tempDirectory === '' || ! is_dir($tempDirectory) || ! is_writable($tempDirectory)) {
             $tempDirectory = sys_get_temp_dir();
         }
-        if (!is_dir($tempDirectory) || !is_writable($tempDirectory)) {
+        if (! is_dir($tempDirectory) || ! is_writable($tempDirectory)) {
             throw new \RuntimeException('沒有可供 Word 匯出使用的暫存資料夾。');
         }
 
@@ -209,6 +262,7 @@ class EmployeeController extends Controller
         }
 
         $phpWord->save($path);
+
         return response()->download($path, $filename, [
             'Content-Type' => 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
         ])->deleteFileAfterSend(true);
