@@ -4,7 +4,8 @@ setlocal
 set "ROOT=%~dp0"
 set "TOOLS=%ROOT%.local-runtime"
 set "PHP_HOME=%TOOLS%\php"
-set "APP_DIR=%ROOT%human-resource-app"
+set "APP_DIR=%ROOT%"
+if not exist "%APP_DIR%\artisan" set "APP_DIR=%ROOT%human-resource-app"
 set "COMPOSER_PHAR=%TOOLS%\composer.phar"
 
 where powershell.exe >nul 2>&1
@@ -62,14 +63,14 @@ if not exist "%COMPOSER_PHAR%" (
     if errorlevel 1 goto failed
 )
 
-"%PHP_HOME%\php.exe" "%COMPOSER_PHAR%" --working-dir="%APP_DIR%" config audit.block-insecure false
-if errorlevel 1 goto failed
-
 if not exist "%APP_DIR%\artisan" (
     echo Creating Laravel 11 project...
     "%PHP_HOME%\php.exe" "%COMPOSER_PHAR%" create-project laravel/laravel "%APP_DIR%" "^11.0" --no-interaction
     if errorlevel 1 goto failed
 )
+
+"%PHP_HOME%\php.exe" "%COMPOSER_PHAR%" --working-dir="%APP_DIR%" config audit.block-insecure false
+if errorlevel 1 goto failed
 
 if not exist "%APP_DIR%\vendor\maatwebsite\excel\src\Excel.php" (
     echo Installing Excel and Word packages...
