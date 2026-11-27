@@ -4,7 +4,8 @@ setlocal
 set "ROOT=%~dp0"
 set "TOOLS=%ROOT%.local-runtime"
 set "PHP_HOME=%TOOLS%\php"
-set "APP_DIR=%ROOT%human-resource-app"
+set "APP_DIR=%ROOT%"
+if not exist "%APP_DIR%\artisan" set "APP_DIR=%ROOT%human-resource-app"
 set "COMPOSER_PHAR=%TOOLS%\composer.phar"
 
 where powershell.exe >nul 2>&1
@@ -24,21 +25,22 @@ if not exist "%PHP_HOME%\php.exe" (
 if not exist "%PHP_HOME%\php.ini" (
     >"%PHP_HOME%\php.ini" echo extension_dir="%PHP_HOME%\ext"
     >>"%PHP_HOME%\php.ini" echo extension=curl
+    >>"%PHP_HOME%\php.ini" echo extension=dom
     >>"%PHP_HOME%\php.ini" echo extension=fileinfo
     >>"%PHP_HOME%\php.ini" echo extension=gd
     >>"%PHP_HOME%\php.ini" echo extension=mbstring
     >>"%PHP_HOME%\php.ini" echo extension=openssl
     >>"%PHP_HOME%\php.ini" echo extension=pdo_sqlite
     >>"%PHP_HOME%\php.ini" echo extension=sqlite3
+    >>"%PHP_HOME%\php.ini" echo extension=xml
+    >>"%PHP_HOME%\php.ini" echo extension=xmlreader
+    >>"%PHP_HOME%\php.ini" echo extension=xmlwriter
     >>"%PHP_HOME%\php.ini" echo extension=zip
     >>"%PHP_HOME%\php.ini" echo date.timezone=Asia/Taipei
 )
 
-powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$p=Join-Path $env:PHP_HOME 'php.ini'; $c=Get-Content -LiteralPath $p; $c=$c | Where-Object { $_ -notmatch '^extension=(dom|xml|xmlreader|xmlwriter)$' }; Set-Content -LiteralPath $p -Value $c"
-findstr /c:"extension=gd" "%PHP_HOME%\php.ini" >nul
-if errorlevel 1 (
-    >>"%PHP_HOME%\php.ini" echo extension=gd
-)
+powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; $p=Join-Path $env:PHP_HOME 'php.ini'; $c=@(Get-Content -LiteralPath $p); $required=@('curl','dom','fileinfo','gd','mbstring','openssl','pdo_sqlite','sqlite3','xml','xmlreader','xmlwriter','zip'); foreach ($extension in $required) { $pattern='^\s*extension\s*=\s*(php_)?' + [regex]::Escape($extension) + '(\.dll)?\s*$'; if (-not ($c | Where-Object { $_ -match $pattern })) { $c += ('extension=' + $extension) } }; Set-Content -LiteralPath $p -Value $c"
+if errorlevel 1 goto failed
 
 powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; $p=Join-Path $env:PHP_HOME 'php.ini'; $tmp=Join-Path $env:PHP_HOME 'tmp'; New-Item -ItemType Directory -Force -Path $tmp | Out-Null; $tmp=$tmp -replace '\\','/'; $c=Get-Content -LiteralPath $p; $c=$c | Where-Object { $_ -notmatch '^(upload_max_filesize|post_max_size|upload_tmp_dir)\s*=' }; $c += 'upload_max_filesize=10M'; $c += 'post_max_size=12M'; $c += ('upload_tmp_dir=' + [char]34 + $tmp + [char]34); Set-Content -LiteralPath $p -Value $c"
 if errorlevel 1 goto failed
@@ -62,9 +64,6 @@ if not exist "%COMPOSER_PHAR%" (
     if errorlevel 1 goto failed
 )
 
-"%PHP_HOME%\php.exe" "%COMPOSER_PHAR%" --working-dir="%APP_DIR%" config audit.block-insecure false
-if errorlevel 1 goto failed
-
 if not exist "%APP_DIR%\artisan" (
     echo Creating Laravel 11 project...
     "%PHP_HOME%\php.exe" "%COMPOSER_PHAR%" create-project laravel/laravel "%APP_DIR%" "^11.0" --no-interaction
@@ -73,7 +72,7 @@ if not exist "%APP_DIR%\artisan" (
 
 if not exist "%APP_DIR%\vendor\maatwebsite\excel\src\Excel.php" (
     echo Installing Excel and Word packages...
-    "%PHP_HOME%\php.exe" "%COMPOSER_PHAR%" --working-dir="%APP_DIR%" require "maatwebsite/excel:^3.1" phpoffice/phpword --no-interaction --no-security-blocking
+    "%PHP_HOME%\php.exe" "%COMPOSER_PHAR%" --working-dir="%APP_DIR%" require "maatwebsite/excel:^3.1" phpoffice/phpword --no-interaction
     if errorlevel 1 goto failed
 )
 
